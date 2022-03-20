@@ -137,7 +137,6 @@ class VOCDataset(Dataset):
 
         img = Image.open(fpath)
         width, height = img.size
-
         img = transforms.ToTensor()(img)
         img = transforms.Resize((self.size, self.size))(img)
         img = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])(img)
@@ -160,9 +159,11 @@ class VOCDataset(Dataset):
         '''
         box_scores = self.roi_data['boxScores'][0,index]
         boxes = self.roi_data['boxes'][0,index]
-        indices = np.argpartition(box_scores, -self.top_n, axis=0)[-self.top_n:]
+        # indices = np.argpartition(box_scores, -self.top_n, axis=0)[-self.top_n:]
 
-        top_boxes = boxes[indices][:,0,:]
+        # top_boxes = boxes[indices][:,0,:]
+        
+        top_boxes = boxes[:self.top_n]
         y1 = top_boxes[:,0]
         y2 = top_boxes[:,2]
         x1 = top_boxes[:,1]
@@ -180,7 +181,7 @@ class VOCDataset(Dataset):
         ret['label']    = label
         ret['wgt']      = wgt
         ret['rois']     = proposals
-        ret['gt_boxes'] = gt_boxes
-        ret['gt_classes'] = gt_class_list
+        # ret['gt_boxes'] = gt_boxes
+        # ret['gt_classes'] = gt_class_list
 
         return ret
