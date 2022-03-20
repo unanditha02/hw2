@@ -25,7 +25,7 @@ from voc_dataset import *
 from utils import *
 
 import wandb
-USE_WANDB = False # use flags, wandb is not convenient for debugging
+USE_WANDB = True # use flags, wandb is not convenient for debugging
 
 
 model_names = sorted(name for name in models.__dict__
@@ -127,7 +127,7 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
     args.distributed = args.world_size > 1
-
+    args.pretrained=True
     # create model
     print("=> creating model '{}'".format(args.arch))
     if args.arch == 'localizer_alexnet':
@@ -143,9 +143,15 @@ def main():
     # define loss function (criterion) and optimizer
     # also use an LR scheduler to decay LR by 10 every 30 epochs
     # you can also use PlateauLR scheduler, which usually works well
-
-
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    step_size = 30
+    gamma = 0.1
+    lr  = 0.01
+    # criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.BCELoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+    print("batch size: ", args.batch_size)
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -168,8 +174,15 @@ def main():
     #TODO: Create Datasets and Dataloaders using VOCDataset - Ensure that the sizes are as required
     # Also ensure that data directories are correct - the ones use for testing by TAs might be different
     # Resize the images to 512x512
+    inp_size = 512
+    top_n = 30
+    train_dataset = VOCDataset('trainval', image_size=inp_size, top_n=top_n)
+    val_dataset = VOCDataset('test', image_size=inp_size, top_n=top_n)
+    args.batch_size = 32
+    args.epochs = 2
 
-
+    global class_id_to_label
+    class_id_to_label = dict(enumerate(train_dataset.CLASS_NAMES))
 
     train_sampler = None
     train_loader = torch.utils.data.DataLoader(
@@ -197,14 +210,18 @@ def main():
     
     
     # TODO: Create loggers for wandb - ideally, use flags since wandb makes it harder to debug code.
-
+    # import wandb
+    if USE_WANDB:
+        wandb.init(project="vlr-hw2")
 
     for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch)
+        # adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch)
-
+        
+        if scheduler is not None:
+            scheduler.step()
         # evaluate on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
             m1, m2 = validate(val_loader, model, criterion, epoch)
@@ -231,7 +248,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
     losses = AverageMeter()
     avg_m1 = AverageMeter()
     avg_m2 = AverageMeter()
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # switch to train mode
     model.train()
 
@@ -241,25 +258,49 @@ def train(train_loader, model, criterion, optimizer, epoch):
         data_time.update(time.time() - end)
 
         # TODO: Get inputs from the data dict
-
+        img = data['image'].to(device)
+        _, _, height, width = img.shape
+        target = data['label'].to(device)
+        # wgt = data['wgt']
+        # rois = data['rois']
+        # gt_boxes = data['gt_boxes']
+        # gt_classes = data['gt_classes']
+        # img, target, wgt = img.to(device), target.to(device), wgt.to(device)
+        optimizer.zero_grad()
 
         # TODO: Get output from model
+        imoutput = model(img)
+        n, c, h, w = imoutput.shape
+        output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
+        # label = []
+        heatmaps = []
+        scale_factor = height/h
+        for j in range(n):
+            label = target[j].nonzero()[0]
+            heatmap = imoutput[j,label,:,:]
+            heatmap = nn.UpsamplingNearest2d(scale_factor=scale_factor)(heatmap.view(1,1,h,w)).view(height,width)
+            heatmaps.append(heatmap)
         # TODO: Perform any necessary functions on the output such as clamping
-        # TODO: Compute loss using ``criterion``
         
-
-
+        # output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
+        output = torch.reshape(output, (n,c))
+        output = torch.sigmoid(output)
+        
+        # TODO: Compute loss using ``criterion``
+        loss = criterion(output, target)
         # measure metrics and record loss
-        m1 = metric1(imoutput.data, target)
-        m2 = metric2(imoutput.data, target)
-        losses.update(loss.item(), input.size(0))
+        m1 = metric1(output, target)
+        m2 = metric2(output, target)
+        losses.update(loss.item(), img.size(0))
+        # print(m1, m2)
         avg_m1.update(m1)
         avg_m2.update(m2)
 
 
         # TODO:
         # compute gradient and do SGD step
-
+        loss.backward()
+        optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -282,8 +323,20 @@ def train(train_loader, model, criterion, optimizer, epoch):
                       avg_m2=avg_m2))
 
         #TODO: Visualize/log things as mentioned in handout
-        #TODO: Visualize at appropriate intervals
+            # logging the loss
+        wandb.log({'epoch': epoch, 'loss': loss.item()})
 
+        #TODO: Visualize at appropriate intervals
+        if i==4:
+            idx = 10
+            original_image = tensor_to_PIL(img[idx,:].cpu().detach())
+            heatmap = heatmaps[idx].unsqueeze(0).repeat(3,1,1)
+            # B = A.unsqueeze(1).repeat(1, K, 1)
+            heatmap = tensor_to_PIL(heatmap.cpu().detach())
+            img = wandb.Image(original_image)
+            img_hm = wandb.Image(heatmap)
+            wandb.log({"image": img})
+            wandb.log({"image with heatmap": img_hm})
 
 
 
@@ -298,24 +351,39 @@ def validate(val_loader, model, criterion, epoch = 0):
 
     # switch to evaluate mode
     model.eval()
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     end = time.time()
     for i, (data) in enumerate(val_loader):
 
         # TODO: Get inputs from the data dict
-        
+        img = data['image']
+        target = data['label']
+        wgt = data['wgt']
+        # rois = data['rois']
+        # gt_boxes = data['gt_boxes']
+        # gt_classes = data['gt_classes']
+        img, target, wgt = img.to(device), target.to(device), wgt.to(device)
 
 
         # TODO: Get output from model
-        # TODO: Perform any necessary functions on the output
-        # TODO: Compute loss using ``criterion``
+        output = model(img)
         
+        # TODO: Perform any necessary functions on the output
+        n, c, h, w = output.shape
+        output = nn.MaxPool2d(kernel_size=(h,w))(output)
+        output = torch.reshape(output, (n,c))
+
+        output = torch.sigmoid(output)
+        # TODO: Compute loss using ``criterion``
+        loss = criterion(output, target)
 
 
         # measure metrics and record loss
-        m1 = metric1(imoutput.data, target)
-        m2 = metric2(imoutput.data, target)
-        losses.update(loss.item(), input.size(0))
+        # m1 = metric1(imoutput.data, target)
+        # m2 = metric2(imoutput.data, target)
+        m1 = metric1(output, target)
+        m2 = metric2(output, target)
+        losses.update(loss.item(), img.size(0))
         avg_m1.update(m1)
         avg_m2.update(m2)
 
@@ -375,13 +443,13 @@ class AverageMeter(object):
 def metric1(output, target):
     # TODO: Ignore for now - proceed till instructed
     
-    return [0]
+    return 0
 
 
 def metric2(output, target):
     #TODO: Ignore for now - proceed till instructed
     
-    return [0]
+    return 0
 
 
 if __name__ == '__main__':
