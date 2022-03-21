@@ -77,7 +77,39 @@ class LocalizerAlexNetRobust(nn.Module):
         return x
 
 
-def localizer_alexnet(pretrained=True, **kwargs):
+# def localizer_alexnet(pretrained=True, **kwargs):
+#     r"""AlexNet model architecture from the
+#     `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
+
+#     Args:
+#         pretrained (bool): If True, returns a model pre-trained on ImageNet
+#     """
+#     model = LocalizerAlexNet(**kwargs)
+#     #TODO: Initialize weights correctly based on whethet it is pretrained or not
+#     model_dict = model.state_dict()
+
+#     if pretrained:
+#         alexnet_dict = load_state_dict_from_url(model_urls['alexnet'], progress=True)
+#         for name, param in alexnet_dict.items():
+#             if 'features' in name:
+#                 model_dict[name] = param
+#             if 'classifier' in name and 'weight' in name:
+#                 nn.init.xavier_uniform_(param)
+#             if 'classifier' in name and 'bias' in name:
+#                 nn.init.zeros_(param)
+#             print(name)
+#     else:
+#         for name, param in model_dict.items():
+#             # if 'features' in name:
+#             if 'weight' in name:
+#                 nn.init.xavier_uniform_(param)
+#             if 'bias' in name:
+#                 nn.init.zeros_(param)
+#             print(name)
+
+#     return model
+
+def localizer_alexnet(pretrained=False, **kwargs):
     r"""AlexNet model architecture from the
     `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
 
@@ -86,28 +118,36 @@ def localizer_alexnet(pretrained=True, **kwargs):
     """
     model = LocalizerAlexNet(**kwargs)
     #TODO: Initialize weights correctly based on whethet it is pretrained or not
-    model_dict = model.state_dict()
+    # if pretrained:
+    #     state_dict = load_state_dict_from_url(model_urls["alexnet"], progress=True)
+    #     model.load_state_dict(state_dict)
 
+    alexnet_state_dict = load_state_dict_from_url(model_urls["alexnet"], progress=True)
+    model_state_dict = model.state_dict()
+    print(type(model_state_dict))
     if pretrained:
-        alexnet_dict = load_state_dict_from_url(model_urls['alexnet'], progress=True)
-        for name, param in alexnet_dict.items():
+        
+        for name, param in alexnet_state_dict.items():
             if 'features' in name:
-                model_dict[name] = param
+                model_state_dict[name] = param
+        for name, param in model_state_dict.items():
             if 'classifier' in name and 'weight' in name:
                 nn.init.xavier_uniform_(param)
+            elif 'classifier' in name and 'bias' in name:
+                nn.init.zeros_(param)
+
+    else:
+        for name, param in model_state_dict.items():
+            if 'features' in name and 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            if 'classifier' in name and 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            if 'features' in name and 'bias' in name:
+                nn.init.zeros_(param)
             if 'classifier' in name and 'bias' in name:
                 nn.init.zeros_(param)
-            print(name)
-    else:
-        for name, param in model_dict.items():
-            # if 'features' in name:
-            if 'weight' in name:
-                nn.init.xavier_uniform_(param)
-            if 'bias' in name:
-                nn.init.zeros_(param)
-            print(name)
 
-
+    # print("Count= ", count)        
     return model
 
 
