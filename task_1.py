@@ -5,6 +5,7 @@ import time
 import sys
 import sklearn
 import sklearn.metrics
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -127,7 +128,12 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
     args.distributed = args.world_size > 1
+
     args.pretrained=True
+    args.batch_size = 32
+    args.epochs = 2
+    args.lr = 0.01
+
     # create model
     print("=> creating model '{}'".format(args.arch))
     if args.arch == 'localizer_alexnet':
@@ -143,15 +149,15 @@ def main():
     # define loss function (criterion) and optimizer
     # also use an LR scheduler to decay LR by 10 every 30 epochs
     # you can also use PlateauLR scheduler, which usually works well
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     step_size = 30
     gamma = 0.1
-    lr  = 0.01
+
     # criterion = torch.nn.CrossEntropyLoss()
     criterion = torch.nn.BCELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
-    print("batch size: ", args.batch_size)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -178,11 +184,6 @@ def main():
     top_n = 30
     train_dataset = VOCDataset('trainval', image_size=inp_size, top_n=top_n)
     val_dataset = VOCDataset('test', image_size=inp_size, top_n=top_n)
-    args.batch_size = 32
-    args.epochs = 2
-
-    global class_id_to_label
-    class_id_to_label = dict(enumerate(train_dataset.CLASS_NAMES))
 
     train_sampler = None
     train_loader = torch.utils.data.DataLoader(
@@ -248,41 +249,31 @@ def train(train_loader, model, criterion, optimizer, epoch):
     losses = AverageMeter()
     avg_m1 = AverageMeter()
     avg_m2 = AverageMeter()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # switch to train mode
     model.train()
 
     end = time.time()
-    for i, (data) in enumerate(train_loader):
+    for i, (data) in enumerate(train_loader):   # i is batch
         # measure data loading time
         data_time.update(time.time() - end)
 
         # TODO: Get inputs from the data dict
-        img = data['image'].to(device)
+        img = data['image'].to('cuda')
         _, _, height, width = img.shape
-        target = data['label'].to(device)
+        target = data['label'].to('cuda')
         # wgt = data['wgt']
         # rois = data['rois']
         # gt_boxes = data['gt_boxes']
         # gt_classes = data['gt_classes']
-        # img, target, wgt = img.to(device), target.to(device), wgt.to(device)
+        
         optimizer.zero_grad()
 
         # TODO: Get output from model
         imoutput = model(img)
         n, c, h, w = imoutput.shape
-        output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
-        # label = []
-        heatmaps = []
-        scale_factor = height/h
-        for j in range(n):
-            label = target[j].nonzero()[0]
-            heatmap = imoutput[j,label,:,:]
-            heatmap = nn.UpsamplingNearest2d(scale_factor=scale_factor)(heatmap.view(1,1,h,w)).view(height,width)
-            heatmaps.append(heatmap)
         # TODO: Perform any necessary functions on the output such as clamping
         
-        # output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
+        output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
         output = torch.reshape(output, (n,c))
         output = torch.sigmoid(output)
         
@@ -324,22 +315,21 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         #TODO: Visualize/log things as mentioned in handout
             # logging the loss
-        wandb.log({'epoch': epoch, 'loss': loss.item()})
+        wandb.log({'epoch': epoch, 'loss': loss.item(), 'mAP': avg_m1.avg, 'Recall': avg_m2.avg})
 
         #TODO: Visualize at appropriate intervals
-        if i==4:
+        if i==50 or i==100:
             idx = 10
+            label = target[idx].nonzero()[0]
+            heatmap = imoutput[idx,label,:,:]
+            heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
+            
             original_image = tensor_to_PIL(img[idx,:].cpu().detach())
-            heatmap = heatmaps[idx].unsqueeze(0).repeat(3,1,1)
-            # B = A.unsqueeze(1).repeat(1, K, 1)
-            heatmap = tensor_to_PIL(heatmap.cpu().detach())
-            img = wandb.Image(original_image)
-            img_hm = wandb.Image(heatmap)
-            wandb.log({"image": img})
+            hm = heatmap.cpu().detach().numpy()
+            img_hm = plt.imshow(hm, cmap='viridis')
+            img_orig = wandb.Image(original_image)
+            wandb.log({"image": img_orig})
             wandb.log({"image with heatmap": img_hm})
-
-
-
         # End of train()
 
 
@@ -351,26 +341,28 @@ def validate(val_loader, model, criterion, epoch = 0):
 
     # switch to evaluate mode
     model.eval()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     end = time.time()
     for i, (data) in enumerate(val_loader):
 
         # TODO: Get inputs from the data dict
-        img = data['image']
-        target = data['label']
-        wgt = data['wgt']
+        img = data['image'].to('cuda')
+        _, _, height, width = img.shape
+        target = data['label'].to('cuda')
+        # wgt = data['wgt']
         # rois = data['rois']
         # gt_boxes = data['gt_boxes']
         # gt_classes = data['gt_classes']
-        img, target, wgt = img.to(device), target.to(device), wgt.to(device)
+        # img, target, wgt = img.to('cuda'), target.to('cuda'), wgt.to('cuda')
 
 
         # TODO: Get output from model
-        output = model(img)
+        imoutput = model(img)
+        n, c, h, w = imoutput.shape
         
         # TODO: Perform any necessary functions on the output
-        n, c, h, w = output.shape
-        output = nn.MaxPool2d(kernel_size=(h,w))(output)
+        n, c, h, w = imoutput.shape
+        output = nn.MaxPool2d(kernel_size=(h,w))(imoutput)
         output = torch.reshape(output, (n,c))
 
         output = torch.sigmoid(output)
@@ -404,8 +396,26 @@ def validate(val_loader, model, criterion, epoch = 0):
                       avg_m1=avg_m1,
                       avg_m2=avg_m2))
 
-        #TODO: Visualize things as mentioned in handout
+        #TODO: Visualize/log things as mentioned in handout
+            # logging the loss
+        wandb.log({'validate/epoch': epoch, 'validate/mAP': avg_m1.avg, 'validate/Recall': avg_m2.avg})
+
         #TODO: Visualize at appropriate intervals
+        # if i==50 or i==100:
+        #     idx = 20
+        #     label = target[idx].nonzero()[0]
+        #     heatmap = imoutput[idx,label,:,:]
+        #     heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
+            
+        #     original_image = tensor_to_PIL(img[idx,:].cpu().detach())
+        #     hm = heatmap.cpu().detach().numpy()
+        #     img_hm = plt.imshow(hm, cmap='jet')
+        #     # B = A.unsqueeze(1).repeat(1, K, 1)
+        #     # hm = tensor_to_PIL(hm.cpu().detach())
+        #     img_orig = wandb.Image(original_image)
+        #     # img_hm = wandb.Image(hm)
+        #     wandb.log({"validate/image": img_orig})
+        #     wandb.log({"validate/image with heatmap": img_hm})
 
 
     print(' * Metric1 {avg_m1.avg:.3f} Metric2 {avg_m2.avg:.3f}'.format(
@@ -442,14 +452,31 @@ class AverageMeter(object):
 
 def metric1(output, target):
     # TODO: Ignore for now - proceed till instructed
-    
-    return 0
+    target = target.cpu().detach().numpy()
+    output = output.cpu().detach().numpy()
+    nclasses = target.shape[1]    
+    AP = []
+    for cid in range(nclasses):
+        gt_cls = target[:, cid].astype('float32')
+        pred_cls = output[:, cid].astype('float32')
+        pred_cls -= 1e-5 * gt_cls
+        is_all_zero = np.all((gt_cls == 0))
+        if not is_all_zero:
+            ap = sklearn.metrics.average_precision_score(
+                gt_cls, pred_cls)
+            AP.append(ap)
+    mAP = np.mean(AP)
+
+    return mAP
 
 
 def metric2(output, target):
     #TODO: Ignore for now - proceed till instructed
-    
-    return 0
+    target = np.argmax(target.cpu().detach().numpy(), axis=1)
+    output = np.argmax(output.cpu().detach().numpy(), axis=1)
+    recall = sklearn.metrics.recall_score(target, output, average='micro')
+
+    return recall
 
 
 if __name__ == '__main__':
