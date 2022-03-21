@@ -131,7 +131,7 @@ def main():
 
     args.pretrained=True
     args.batch_size = 32
-    args.epochs = 2
+    args.epochs = 30
     args.lr = 0.01
 
     # create model
@@ -239,6 +239,33 @@ def main():
                 'optimizer': optimizer.state_dict(),
             }, is_best)
 
+# Q1.6
+    indices = []
+    random.seed(10)
+    for num in range(3):
+        indices.append(random.randint(0,len(val_dataset)))
+    for idx in indices:
+        val_input = val_dataset[idx]
+        val_image = val_input['image'].to('cuda')
+        ch, height, width = val_image.shape
+        val_output = model(val_image.view(1,ch,height,width))
+
+        n, c, h, w = val_output.shape
+        label = val_input['label'].nonzero()[0]
+        heatmap = val_output[:,label,:,:]
+        heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
+                
+        original_image = tensor_to_PIL(val_image.cpu().detach())
+        hm = heatmap.cpu().detach().numpy()
+        
+        plt.figure()
+        plt.imshow(original_image)
+        plt.axis("off")
+        img_hm = plt.imshow(hm, alpha=0.5, cmap='jet_r')
+
+        if USE_WANDB:
+            wandb.log({"Validation image with heatmap": img_hm})
+
 
 
 
@@ -316,11 +343,27 @@ def train(train_loader, model, criterion, optimizer, epoch):
         #TODO: Visualize/log things as mentioned in handout
             # logging the loss
         if USE_WANDB:
-            wandb.log({'epoch': epoch, 'loss': loss.item(), 'mAP': avg_m1.avg, 'Recall': avg_m2.avg})
+            wandb.log({'train/Epoch': epoch, 'train/Loss': loss.item(), 'train/mAP': avg_m1.avg, 'train/Recall': avg_m2.avg})
 
         #TODO: Visualize at appropriate intervals
         # for Q1.5
-            if i==50 or i==100:
+            # if i==50 or i==100:
+            #     idx = 10
+            #     label = target[idx].nonzero()[0]
+            #     heatmap = imoutput[idx,label,:,:]
+            #     heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
+                
+            #     original_image = tensor_to_PIL(img[idx,:].cpu().detach())
+            #     hm = heatmap.cpu().detach().numpy()
+            #     
+                # plt.figure()
+                # plt.imshow(original_image)
+                # plt.axis("off")
+                # img_hm = plt.imshow(hm, alpha=0.5, cmap='jet_r')
+                # wandb.log({"Training Image with Heatmap": img_hm})
+
+        # for Q 1.6
+            if ((epoch==0 or epoch==14 or epoch==29) and (i==50 or i==100)):
                 idx = 10
                 label = target[idx].nonzero()[0]
                 heatmap = imoutput[idx,label,:,:]
@@ -328,10 +371,13 @@ def train(train_loader, model, criterion, optimizer, epoch):
                 
                 original_image = tensor_to_PIL(img[idx,:].cpu().detach())
                 hm = heatmap.cpu().detach().numpy()
-                img_hm = plt.imshow(hm, cmap='viridis')
-                img_orig = wandb.Image(original_image)
-                wandb.log({"image": img_orig})
-                wandb.log({"image with heatmap": img_hm})
+                
+                plt.figure()
+                plt.imshow(original_image)
+                plt.axis("off")
+                img_hm = plt.imshow(hm, alpha=0.5, cmap='jet_r')
+
+                wandb.log({"Training Image with Heatmap": img_hm})
         # End of train()
 
 
@@ -401,7 +447,7 @@ def validate(val_loader, model, criterion, epoch = 0):
         #TODO: Visualize/log things as mentioned in handout
             # logging the loss
         if USE_WANDB:
-            wandb.log({'validate/epoch': epoch, 'validate/mAP': avg_m1.avg, 'validate/Recall': avg_m2.avg})
+            wandb.log({'validate/Epoch': epoch, 'validate/mAP': avg_m1.avg, 'validate/Recall': avg_m2.avg})
 
         #TODO: Visualize at appropriate intervals
         # if i==50 or i==100:
@@ -412,7 +458,7 @@ def validate(val_loader, model, criterion, epoch = 0):
             
         #     original_image = tensor_to_PIL(img[idx,:].cpu().detach())
         #     hm = heatmap.cpu().detach().numpy()
-        #     img_hm = plt.imshow(hm, cmap='jet')
+        #     img_hm = plt.imshow(hm, cmap='jet_r')
         #     # B = A.unsqueeze(1).repeat(1, K, 1)
         #     # hm = tensor_to_PIL(hm.cpu().detach())
         #     img_orig = wandb.Image(original_image)
