@@ -315,21 +315,23 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         #TODO: Visualize/log things as mentioned in handout
             # logging the loss
-        wandb.log({'epoch': epoch, 'loss': loss.item(), 'mAP': avg_m1.avg, 'Recall': avg_m2.avg})
+        if USE_WANDB:
+            wandb.log({'epoch': epoch, 'loss': loss.item(), 'mAP': avg_m1.avg, 'Recall': avg_m2.avg})
 
         #TODO: Visualize at appropriate intervals
-        if i==50 or i==100:
-            idx = 10
-            label = target[idx].nonzero()[0]
-            heatmap = imoutput[idx,label,:,:]
-            heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
-            
-            original_image = tensor_to_PIL(img[idx,:].cpu().detach())
-            hm = heatmap.cpu().detach().numpy()
-            img_hm = plt.imshow(hm, cmap='viridis')
-            img_orig = wandb.Image(original_image)
-            wandb.log({"image": img_orig})
-            wandb.log({"image with heatmap": img_hm})
+        # for Q1.5
+            if i==50 or i==100:
+                idx = 10
+                label = target[idx].nonzero()[0]
+                heatmap = imoutput[idx,label,:,:]
+                heatmap = nn.Upsample(size=(height,width),mode='nearest')(heatmap.view(1,1,h,w)).view(height,width)
+                
+                original_image = tensor_to_PIL(img[idx,:].cpu().detach())
+                hm = heatmap.cpu().detach().numpy()
+                img_hm = plt.imshow(hm, cmap='viridis')
+                img_orig = wandb.Image(original_image)
+                wandb.log({"image": img_orig})
+                wandb.log({"image with heatmap": img_hm})
         # End of train()
 
 
@@ -398,7 +400,8 @@ def validate(val_loader, model, criterion, epoch = 0):
 
         #TODO: Visualize/log things as mentioned in handout
             # logging the loss
-        wandb.log({'validate/epoch': epoch, 'validate/mAP': avg_m1.avg, 'validate/Recall': avg_m2.avg})
+        if USE_WANDB:
+            wandb.log({'validate/epoch': epoch, 'validate/mAP': avg_m1.avg, 'validate/Recall': avg_m2.avg})
 
         #TODO: Visualize at appropriate intervals
         # if i==50 or i==100:
