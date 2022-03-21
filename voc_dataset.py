@@ -160,7 +160,6 @@ class VOCDataset(Dataset):
         box_scores = self.roi_data['boxScores'][0,index]
         boxes = self.roi_data['boxes'][0,index]
         # indices = np.argpartition(box_scores, -self.top_n, axis=0)[-self.top_n:]
-
         # top_boxes = boxes[indices][:,0,:]
         
         top_boxes = boxes[:self.top_n]
