@@ -167,11 +167,12 @@ class VOCDataset(Dataset):
         y2 = top_boxes[:,2]
         x1 = top_boxes[:,1]
         x2 = top_boxes[:,3]
-        proposals = np.empty((self.top_n,1))
-        proposals = np.concatenate((proposals, np.divide(y1,height).reshape(self.top_n,1)), axis=1)
-        proposals = np.concatenate((proposals, np.divide(x1,width).reshape(self.top_n,1)), axis=1)
-        proposals = np.concatenate((proposals, np.divide(y2,height).reshape(self.top_n,1)), axis=1)
-        proposals = np.concatenate((proposals, np.divide(x2,width).reshape(self.top_n,1)), axis=1)
+        num = self.top_n if self.top_n<=len(boxes) else len(boxes)
+        proposals = np.empty((num,1))
+        proposals = np.concatenate((proposals, np.divide(y1,height).reshape(num,1)), axis=1)
+        proposals = np.concatenate((proposals, np.divide(x1,width).reshape(num,1)), axis=1)
+        proposals = np.concatenate((proposals, np.divide(y2,height).reshape(num,1)), axis=1)
+        proposals = np.concatenate((proposals, np.divide(x2,width).reshape(num,1)), axis=1)
         proposals = proposals[:, 1:]
 
         ret = {}
@@ -180,7 +181,7 @@ class VOCDataset(Dataset):
         ret['label']    = label
         ret['wgt']      = wgt
         ret['rois']     = proposals
-        # ret['gt_boxes'] = gt_boxes
-        # ret['gt_classes'] = gt_class_list
+        ret['gt_boxes'] = gt_boxes
+        ret['gt_classes'] = gt_class_list
 
         return ret
