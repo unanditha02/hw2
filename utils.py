@@ -21,10 +21,30 @@ def nms(bounding_boxes, confidence_score, threshold=0.05):
 
     return: list of bounding boxes and scores
     """
+    boxes = []
+    scores = []
+    while (len(bounding_boxes)!= 0):
+        
+        max_conf_i = np.argmax(confidence_score)
+        best_conf_score = confidence_score[max_conf_i]
+        best_conf_box = bounding_boxes[max_conf_i]
+        if(type(bounding_boxes)==torch.Tensor):
+            bounding_boxes = bounding_boxes.cpu().detach().numpy()
 
+        bounding_boxes = np.delete(bounding_boxes, max_conf_i, 0)
+        confidence_score = np.delete(confidence_score, max_conf_i, 0)
+        boxes.append(best_conf_box)
+        scores.append(best_conf_score)
+
+        for i, box in enumerate(bounding_boxes):
+            if(iou(best_conf_box, box) > 0.3):
+                if(type(bounding_boxes)==torch.Tensor):
+                    bounding_boxes = bounding_boxes.cpu().detach().numpy()
+                i_remove = np.argwhere((bounding_boxes==box).all(axis=1))[0][0]
+                bounding_boxes = np.delete(bounding_boxes, i_remove, 0)
+                confidence_score = np.delete(confidence_score, i_remove, 0)
 
     return boxes, scores
-
 
 #TODO: calculate the intersection over union of two boxes
 def iou(box1, box2):
@@ -32,7 +52,20 @@ def iou(box1, box2):
     Calculates Intersection over Union for two bounding boxes (xmin, ymin, xmax, ymax)
     returns IoU vallue
     """
+    area1 = (box1[2]-box1[0])*(box1[3]-box1[1])
+    area2 = (box2[2]-box2[0])*(box2[3]-box2[1])
 
+    xx = max(box1[0], box2[0])
+    yy = max(box1[1], box2[1])
+    aa = min(box1[2], box2[2])
+    bb = min(box1[3], box2[3])
+
+    w = max(0, aa - xx)
+    h = max(0, bb - yy)
+
+    intersection_area = w*h
+    union_area = area1 + area2 - intersection_area
+    iou = intersection_area / union_area
     return iou
 
 
